@@ -86,18 +86,21 @@ loadavg(void)
 }
 
 char *
-getvol(void)
+runcmd(char *cmd)
 {
-	FILE* pipe = popen("amixer get PCM | grep -o '[0-9]*%'", "r");
-	if (pipe) {
-		char buffer[4];
-		while(fgets(buffer, sizeof(buffer), pipe) != NULL) {
-			return smprintf("%s", buffer);
-		}
+	FILE *fp = popen(cmd, "r");
+	char buf[50];
 
-		pclose(pipe);
-		/* buffer[strlen(buffer)-1] = '\0'; */
+	if (fp == NULL) {
+		perror("fail to run command");
+		exit(1);
 	}
+
+	fgets(buf, sizeof(buf)-1, fp); /* Get the strings from fp */
+	pclose(fp);
+
+	buf[strlen(buf)-1] = '\0'; /* Shorten the buf to it's size */
+	return smprintf("%s", buf);
 }
 
 int
@@ -119,7 +122,7 @@ main(void)
 			free(avgs);
 			free(vol);
 			avgs = loadavg();
-			vol = getvol();
+			vol = runcmd("amixer get PCM | grep -o '[0-9]*%'");
 		}
 		tmtz = mktimes("%a %d %b %T");
 
@@ -128,6 +131,10 @@ main(void)
 		setstatus(status);
 		free(tmtz);
 		free(status);
+
+		if (i == 600) {
+			i = 1;
+		}
 	}
 
 	XCloseDisplay(dpy);
