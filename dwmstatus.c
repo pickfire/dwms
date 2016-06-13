@@ -1,32 +1,28 @@
 #define _DEFAULT_SOURCE
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <string.h>
-#include <strings.h>
-#include <sys/time.h>
-#include <time.h>
 #include <sys/statvfs.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
-#include <X11/Xlib.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
 
-#include <alsa/asoundlib.h>
-#include <alsa/control.h>
+#include <X11/Xlib.h>
 
 static Display *dpy;
 
 char *
-smprintf(char *fmt, ...)
+smprintf(char *line, ...)
 {
 	va_list fmtargs;
 	char *ret;
 	int len;
 
-	va_start(fmtargs, fmt);
-	len = vsnprintf(NULL, 0, fmt, fmtargs);
+	va_start(fmtargs, line);
+	len = vsnprintf(NULL, 0, line, fmtargs);
 	va_end(fmtargs);
 
 	ret = malloc(++len);
@@ -35,41 +31,28 @@ smprintf(char *fmt, ...)
 		exit(1);
 	}
 
-	va_start(fmtargs, fmt);
-	vsnprintf(ret, len, fmt, fmtargs);
+	va_start(fmtargs, line);
+	vsnprintf(ret, len, line, fmtargs);
 	va_end(fmtargs);
 
 	return ret;
 }
 
 char *
-mktimes(char *fmt)
+mktimes(char *line)
 {
-	char buf[129];
-	time_t tim;
-	struct tm *timtm;
+	char buf[32];
+	time_t t;
+	struct tm *now;
 
-	memset(buf, 0, sizeof(buf));
-	tim = time(NULL);
-	timtm = localtime(&tim);
-	if (timtm == NULL) {
-		perror("localtime");
+	time(&t);
+	now = localtime(&t);
+	if (now == NULL) {
+		perror("localtime failed\n");
 		exit(1);
 	}
-
-	if (!strftime(buf, sizeof(buf)-1, fmt, timtm)) {
-		fprintf(stderr, "strftime == 0\n");
-		exit(1);
-	}
-
+	strftime(buf, sizeof(buf)-1, line, now);
 	return smprintf("%s", buf);
-}
-
-void
-setstatus(char *str)
-{
-	XStoreName(dpy, DefaultRootWindow(dpy), str);
-	XSync(dpy, False);
 }
 
 char *
@@ -107,10 +90,12 @@ runcmd(char *cmd)
 	return smprintf("%s", buf);
 }
 
-char *getfree(char *mnt){
+char *
+getfree(char *mnt)
+{
 	struct statvfs buf;
 
-	if ( (statvfs(mnt, &buf)) < 0){
+	if ((statvfs(mnt, &buf)) < 0){
 		perror("can't get info on disk");
 		exit(1);
 	}
@@ -118,44 +103,12 @@ char *getfree(char *mnt){
 	return smprintf("%d%%", 100 * buf.f_bfree / buf.f_blocks);
 }
 
-/*
-int
-get_vol(void)
-{
-    int vol;
-    snd_hctl_t *hctl;
-    snd_ctl_elem_id_t *id;
-    snd_ctl_elem_value_t *control;
-
-// To find card and subdevice: /proc/asound/, aplay -L, amixer controls
-    snd_hctl_open(&hctl, "hw:0", 0);
-    snd_hctl_load(hctl);
-
-    snd_ctl_elem_id_alloca(&id);
-    snd_ctl_elem_id_set_interface(id, SND_CTL_ELEM_IFACE_MIXER);
-
-// amixer controls
-    snd_ctl_elem_id_set_name(id, "Master Playback Volume");
-
-    snd_hctl_elem_t *elem = snd_hctl_find_elem(hctl, id);
-
-    snd_ctl_elem_value_alloca(&control);
-    snd_ctl_elem_value_set_id(control, id);
-
-    snd_hctl_elem_read(elem, control);
-    vol = (int)snd_ctl_elem_value_get_integer(control,0);
-
-    snd_hctl_close(hctl);
-    return vol;
-}
-*/
-
 int
 main(void)
 {
-	unsigned int i;
+	unsigned short i;
 	char *tmtz, *avgs, *root, *vol = NULL;
-	char *status;
+	char *line;
 
 	if (!(dpy = XOpenDisplay(NULL))) {
 		fprintf(stderr, "dwmstatus: cannot open display.\n");
@@ -173,15 +126,17 @@ main(void)
 		}
 		tmtz = mktimes("%a %d %b %T");
 
-		status = smprintf("♪:%s │ / %s │ %s │ %s",
+		line = smprintf("♪:%s │ / %s │ %s │ %s",
 				vol, root, avgs, tmtz);
-		setstatus(status);
-		free(tmtz);
-		free(status);
 
-		if (i == 600) {
-			i = 1;
-		}
+		XStoreName(dpy, DefaultRootWindow(dpy), line);
+		XSync(dpy, False);
+
+		free(tmtz);
+		free(line);
+
+		if (i == 60)
+			i = 0;
 	}
 
 	XCloseDisplay(dpy);
