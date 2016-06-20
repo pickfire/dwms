@@ -73,6 +73,31 @@ loadavg(void)
 }
 
 char *
+batstat(void)
+{
+	short int n;
+	char status;
+	FILE *fp;
+
+	if ((fp = fopen("/sys/class/power_supply/BAT0/status", "r"))) {
+		status = fgetc(fp);
+		fclose(fp);
+		fp = fopen("/sys/class/power_supply/BAT0/capacity", "r");
+		fscanf(fp, "%hd", &n);
+		fclose(fp);
+
+		if (status == 'C') /* charging */
+			return smprintf("+%hd%%", n);
+		else if (status == 'D') /* discharging */
+			return smprintf("-%hd%%", n);
+		/* nothing for full */
+		return smprintf("%hd%%", n);
+	}
+	else
+		return smprintf("AC");
+}
+
+char *
 runcmd(char *cmd)
 {
 	FILE *fp = popen(cmd, "r");
@@ -107,7 +132,7 @@ int
 main(void)
 {
 	unsigned short i;
-	char *tmtz, *avgs, *root, *vol = NULL;
+	char *tmtz, *avgs = NULL, *root = NULL, *vol = NULL, *bat = NULL;
 	char *line;
 
 	if (!(dpy = XOpenDisplay(NULL))) {
@@ -116,18 +141,22 @@ main(void)
 	}
 
 	for (i = 0;;sleep(1), i++) {
+		if (i % 10 == 0) {
+			free(bat);
+			bat = batstat();
+		}
 		if (i % 5 == 0) {
 			free(avgs);
 			free(root);
 			free(vol);
 			avgs = loadavg();
 			root = getfree("/");
-			vol = runcmd("amixer get PCM | grep -o '[0-9]*%'");
+			vol = runcmd("amixer get PCM | grep -om1 '[0-9]*%'");
 		}
-		tmtz = mktimes("%a %d %b %T");
+		tmtz = mktimes("%a %b %d %T");
 
-		line = smprintf("♪:%s │ / %s │ %s │ %s",
-				vol, root, avgs, tmtz);
+		line = smprintf("♪ %s ⚡ %s │ / %s │ %s │ %s",
+				vol, bat, root, avgs, tmtz);
 
 		XStoreName(dpy, DefaultRootWindow(dpy), line);
 		XSync(dpy, False);

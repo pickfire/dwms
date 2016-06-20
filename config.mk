@@ -16,7 +16,7 @@ LIBS = -L/usr/lib -lc -L${X11LIB} -lX11
 
 # flags
 CPPFLAGS = -DVERSION=\"${VERSION}\"
-CFLAGS = -g -std=c99 -pedantic -Wall -O2 -march=armv7-a -mfloat-abi=hard -mfpu=vfpv3-d16 ${INCS} ${CPPFLAGS}
+CFLAGS = -g -std=c99 -pedantic -Wall -O2 -march=x86-64 -mtune=generic -pipe ${INCS} ${CPPFLAGS}
 #CFLAGS = -g -std=c99 -pedantic -Wall -O0 ${INCS} ${CPPFLAGS}
 LDFLAGS = -g ${LIBS}
 
