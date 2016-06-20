@@ -1,0 +1,14 @@
+# Use ALSA instead of shell command
+  - MAX -> 100%
+  - ?   -> Muted / 0%
+
+# Free space for /home
+
+# Network: check if IP is assigned
+  - State: /sys/class/net/?/operstate
+  - up/down: /sys/class/net/?/carrier
+  - Strength: /proc/net/wireless (link)
+  - `man proc`
+
+
+# vim:ft=markdown:
