@@ -11,6 +11,8 @@
 #include <unistd.h>
 
 #include <X11/Xlib.h>
+#include <alsa/asoundlib.h>
+#include <alsa/control.h>
 
 static Display *dpy;
 
@@ -144,14 +146,18 @@ char *
 netusage(unsigned long long int *oldrec, unsigned long long int *oldsent)
 {
 	unsigned long long int newrec, newsent;
+	char *ret;
 	newrec = newsent = 0;
 
 	if (!parse_netdev(&newrec, &newsent)) {
 		fprintf(stdout, "error parsing /proc/net/dev\n");
 		exit(1);
 	}
+	ret = smprintf("↓ %s ↑ %s", cal_bytes(newrec-*oldrec), cal_bytes(newsent-*oldsent));
 
-	return smprintf("↓ %s ↑ %s", cal_bytes(newrec-*oldrec), cal_bytes(newsent-*oldsent));
+	*oldrec = newrec;
+	*oldsent = newsent;
+	return ret;
 }
 
 char *
@@ -185,6 +191,33 @@ getfree(char *mnt)
 	return smprintf("%d%%", 100 * buf.f_bfree / buf.f_blocks);
 }
 
+char *
+getvol(char *channel)
+{
+    long vol, min, max;
+    int mute;
+    snd_mixer_t *mixer;
+    snd_mixer_selem_id_t *id;
+
+    snd_mixer_open(&mixer, 0);
+    snd_mixer_attach(mixer, "default");
+    snd_mixer_selem_register(mixer, NULL, NULL);
+    snd_mixer_load(mixer);
+
+    snd_mixer_selem_id_alloca(&id);
+    snd_mixer_selem_id_set_index(id, 0);
+    snd_mixer_selem_id_set_name(id, channel);
+    snd_mixer_elem_t *elem = snd_mixer_find_selem(mixer, id);
+
+    snd_mixer_selem_get_playback_switch(elem, SND_MIXER_SCHN_MONO, &mute);
+    snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_MONO, &vol);
+    snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
+
+    snd_mixer_close(mixer);
+    char *vp = (vol == max) ? "F" : smprintf("%ld", 100 * vol / max);
+    return smprintf("%s", mute ? vp : "M");
+}
+
 int
 main(void)
 {
@@ -209,13 +242,12 @@ main(void)
 		if (i % 5 == 0) {
 			free(avgs);
 			free(root);
-			free(vol);
 			avgs = loadavg();
 			root = getfree("/");
-			vol = runcmd("amixer get PCM | grep -om1 '[0-9]*%'");
 		}
 		net = netusage(&rec, &sent);
 		tmtz = mktimes("%a %b %d %T");
+		vol = getvol("Master");
 
 		line = smprintf("♪ %s ⚡ %s │ %s │ / %s │ %s │ %s",
 				vol, bat, net, root, avgs, tmtz);
@@ -225,6 +257,7 @@ main(void)
 
 		free(net);
 		free(tmtz);
+		free(vol);
 		free(line);
 
 		if (i == 60)
