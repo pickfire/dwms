@@ -1,8 +1,8 @@
-#define _DEFAULT_SOURCE
 #include <sys/statvfs.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +15,13 @@
 #include <alsa/control.h>
 
 static Display *dpy;
+static int done;
+
+void
+terminate(const int signo)
+{
+	done = 1;
+}
 
 char *
 smprintf(char *line, ...)
@@ -41,19 +48,17 @@ smprintf(char *line, ...)
 }
 
 char *
-mktimes(char *line)
+mktimes(char *fmt)
 {
-	char buf[32];
+	char buf[20];
 	time_t t;
-	struct tm *now;
 
-	time(&t);
-	now = localtime(&t);
-	if (now == NULL) {
-		perror("localtime failed\n");
+	t = time(NULL);
+	if (!strftime(buf, sizeof(buf), fmt, localtime(&t))) {
+		perror("strftime: Result string exceeds buffer size\n");
 		exit(1);
 	}
-	strftime(buf, sizeof(buf)-1, line, now);
+
 	return smprintf("%s", buf);
 }
 
@@ -94,8 +99,7 @@ batstat(void)
 			return smprintf("-%hd%%", n);
 		/* nothing for full */
 		return smprintf("%hd%%", n);
-	}
-	else
+	} else
 		return smprintf("AC");
 }
 
@@ -125,19 +129,19 @@ parse_netdev(unsigned long long int *receivedabs, unsigned long long int *sentab
 	return ret;
 }
 
-#define GIGA (1024.0 * 1024 * 1024)
-#define MEGA (1024.0 * 1024)
-#define KILO (1024.0)
+#define GIBI (1024.0 * 1024 * 1024)
+#define MEBI (1024.0 * 1024)
+#define KIBI (1024.0)
 
 char *
 cal_bytes(double b)
 {
-	if (b > GIGA)
-		return smprintf("%.1fG", b / GIGA);
-	else if (b > MEGA)
-		return smprintf("%.1fM", b / MEGA);
-	else if (b > KILO)
-		return smprintf("%.1fk", b / KILO);
+	if (b > GIBI)
+		return smprintf("%.1fG", b / GIBI);
+	else if (b > MEBI)
+		return smprintf("%.1fM", b / MEBI);
+	else if (b > KIBI)
+		return smprintf("%.1fk", b / KIBI);
 	else
 		return smprintf("%.0f", b);
 }
@@ -147,13 +151,18 @@ netusage(unsigned long long int *oldrec, unsigned long long int *oldsent)
 {
 	unsigned long long int newrec, newsent;
 	char *ret;
+	char *rec, *sent;
 	newrec = newsent = 0;
 
 	if (!parse_netdev(&newrec, &newsent)) {
 		fprintf(stdout, "error parsing /proc/net/dev\n");
 		exit(1);
 	}
-	ret = smprintf("↓ %s ↑ %s", cal_bytes(newrec-*oldrec), cal_bytes(newsent-*oldsent));
+
+	rec = cal_bytes(newrec-*oldrec), sent = cal_bytes(newsent-*oldsent);
+	ret = smprintf("↓ %s ↑ %s", rec, sent);
+	free(rec);
+	free(sent);
 
 	*oldrec = newrec;
 	*oldsent = newsent;
@@ -194,47 +203,102 @@ getfree(char *mnt)
 char *
 getvol(char *channel)
 {
-    long vol, min, max;
-    int mute;
-    snd_mixer_t *mixer;
-    snd_mixer_selem_id_t *id;
+	/*
+	long vol, min, max;
+	int mute;
+	snd_mixer_t *mixer;
+	snd_mixer_selem_id_t *id;
+	snd_mixer_elem_t *elem;
 
-    snd_mixer_open(&mixer, 0);
-    snd_mixer_attach(mixer, "default");
-    snd_mixer_selem_register(mixer, NULL, NULL);
-    snd_mixer_load(mixer);
+	snd_mixer_open(&mixer, 0);
+	snd_mixer_attach(mixer, "default");
+	snd_mixer_selem_register(mixer, NULL, NULL);
+	snd_mixer_load(mixer);
 
-    snd_mixer_selem_id_alloca(&id);
-    snd_mixer_selem_id_set_index(id, 0);
-    snd_mixer_selem_id_set_name(id, channel);
-    snd_mixer_elem_t *elem = snd_mixer_find_selem(mixer, id);
+	snd_mixer_selem_id_alloca(&id);
+	snd_mixer_selem_id_set_index(id, 0);
+	snd_mixer_selem_id_set_name(id, channel);
+	elem = snd_mixer_find_selem(mixer, id);
 
-    snd_mixer_selem_get_playback_switch(elem, SND_MIXER_SCHN_MONO, &mute);
-    snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_MONO, &vol);
-    snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
+	snd_mixer_selem_get_playback_switch(elem, SND_MIXER_SCHN_MONO, &mute);
+	snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_MONO, &vol);
+	snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
 
-    snd_mixer_close(mixer);
-    char *vp = (vol == max) ? "F" : smprintf("%ld", 100 * vol / max);
-    return smprintf("%s", mute ? vp : "M");
+	snd_mixer_close(mixer);
+
+	if (mute)
+		return smprintf("M");
+	else if (vol == max)
+		return smprintf("F");
+	else
+		return smprintf("%ld", 100 * vol / max);
+	*/
+	int vol;
+	snd_hctl_t *hctl;
+	snd_hctl_elem_t *elem;
+	snd_ctl_elem_id_t *id;
+	snd_ctl_elem_value_t *control;
+
+	snd_hctl_open(&hctl, "hw:0", 0);
+	snd_hctl_load(hctl);
+
+	snd_ctl_elem_id_alloca(&id);
+	snd_ctl_elem_id_set_interface(id, SND_CTL_ELEM_IFACE_MIXER);
+	snd_ctl_elem_id_set_name(id, "Master Playback Volume");
+
+	elem = snd_hctl_find_elem(hctl, id);
+	snd_ctl_elem_value_alloca(&control);
+	snd_ctl_elem_value_set_id(control, id);
+	snd_hctl_elem_read(elem, control);
+
+	vol = (int) snd_ctl_elem_value_get_integer(control, 0);
+	snd_hctl_close(hctl);
+	return smprintf("%d", vol);
+}
+
+void
+die(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+
+	fputc('\n', stderr);
+
+	exit(1);
 }
 
 int
-main(void)
+main(int argc, char *argv[])
 {
-	unsigned short i;
-	char *tmtz, *net, *avgs, *root, *vol, *bat;
-	tmtz = net = avgs = root = vol = bat = NULL;
-	char *line;
+	struct sigaction sa;
+	unsigned short i, sflag;
+	char *tmtz, *net, *avgs, *root, *vol, *bat, *line;
 	static unsigned long long rec = 0, sent = 0;
 
-	if (!(dpy = XOpenDisplay(NULL))) {
-		fprintf(stderr, "dwmstatus: cannot open display.\n");
-		return 1;
-	}
+	sflag = 0;
+	if (argc == 2 && !strcmp("-s", argv[1]))
+		sflag = 1;
+	else if (argc != 1)
+		die("usage: dwms [-s]");
+
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = terminate;
+	sigaction(SIGINT,  &sa, NULL);
+	sigaction(SIGTERM, &sa, NULL);
+
+	if (!sflag && !(dpy = XOpenDisplay(NULL)))
+		die("dwms: cannot open display");
 
 	parse_netdev(&rec, &sent);
 
-	for (i = 0;;sleep(1), i++) {
+	tmtz = net = avgs = root = vol = bat = NULL;
+
+	vol = "n/a";
+
+	for (i = 0; !done; sleep(1), i++) {
 		if (i % 10 == 0) {
 			free(bat);
 			bat = batstat();
@@ -252,8 +316,12 @@ main(void)
 		line = smprintf("♪ %s ⚡ %s │ %s │ / %s │ %s │ %s",
 				vol, bat, net, root, avgs, tmtz);
 
-		XStoreName(dpy, DefaultRootWindow(dpy), line);
-		XSync(dpy, False);
+		if (sflag) {
+			puts(line);
+		} else {
+			XStoreName(dpy, DefaultRootWindow(dpy), line);
+			XSync(dpy, False);
+		}
 
 		free(net);
 		free(tmtz);
@@ -264,7 +332,10 @@ main(void)
 			i = 0;
 	}
 
-	XCloseDisplay(dpy);
+	if (!sflag) {
+		XStoreName(dpy, DefaultRootWindow(dpy), NULL);
+		XCloseDisplay(dpy);
+	}
 
 	return 0;
 }
