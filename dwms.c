@@ -15,12 +15,12 @@
 #include <alsa/control.h>
 
 static Display *dpy;
-static int done;
+static int step;
 
 void
 terminate(const int signo)
 {
-	done = 1;
+	step = -2;
 }
 
 char *
@@ -82,7 +82,7 @@ loadavg(void)
 char *
 batstat(void)
 {
-	short int n;
+	int n;
 	char status;
 	FILE *fp;
 
@@ -90,13 +90,13 @@ batstat(void)
 		status = fgetc(fp);
 		fclose(fp);
 		fp = fopen("/sys/class/power_supply/BAT0/capacity", "r");
-		fscanf(fp, "%hd", &n);
+		fscanf(fp, "%d", &n);
 		fclose(fp);
 
 		if (status == 'C') /* charging */
-			return smprintf("+%hd%%", n);
+			return smprintf("+%d%%", n);
 		else if (status == 'D') /* discharging */
-			return smprintf("-%hd%%", n);
+			return smprintf("-%d%%", n);
 		/* nothing for full */
 		return smprintf("%hd%%", n);
 	} else
@@ -274,7 +274,7 @@ int
 main(int argc, char *argv[])
 {
 	struct sigaction sa;
-	unsigned short i, sflag;
+	int sflag;
 	char *tmtz, *net, *avgs, *root, *vol, *bat, *line;
 	static unsigned long long rec = 0, sent = 0;
 
@@ -298,12 +298,12 @@ main(int argc, char *argv[])
 
 	vol = "n/a";
 
-	for (i = 0; !done; sleep(1), i++) {
-		if (i % 10 == 0) {
+	for (step = 0; step >= 0; sleep(1), step++) {
+		if (step % 10 == 0) {
 			free(bat);
 			bat = batstat();
 		}
-		if (i % 5 == 0) {
+		if (step % 5 == 0) {
 			free(avgs);
 			free(root);
 			avgs = loadavg();
@@ -328,8 +328,8 @@ main(int argc, char *argv[])
 		free(vol);
 		free(line);
 
-		if (i == 60)
-			i = 0;
+		if (step == 60)
+			step = 0;
 	}
 
 	if (!sflag) {
