@@ -299,11 +299,11 @@ main(int argc, char *argv[])
 	vol = "n/a";
 
 	for (step = 0; step >= 0; sleep(1), step++) {
-		if (step % 10 == 0) {
-			free(bat);
-			bat = batstat();
-		}
 		if (step % 5 == 0) {
+			if (step % 10 == 0) {
+				free(bat);
+				bat = batstat();
+			}
 			free(avgs);
 			free(root);
 			avgs = loadavg();
