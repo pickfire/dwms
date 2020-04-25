@@ -23,6 +23,12 @@ terminate(const int signo)
 	step = -2;
 }
 
+void
+calculate(const int signo)
+{
+	step = -1;
+}
+
 char *
 smprintf(char *line, ...)
 {
@@ -273,7 +279,7 @@ die(const char *fmt, ...)
 int
 main(int argc, char *argv[])
 {
-	struct sigaction sa;
+	struct sigaction sa1, sa2;
 	int sflag;
 	char *tmtz, *net, *avgs, *root, *vol, *bat, *line;
 	static unsigned long long rec = 0, sent = 0;
@@ -284,10 +290,14 @@ main(int argc, char *argv[])
 	else if (argc != 1)
 		die("usage: dwms [-s]");
 
-	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = terminate;
-	sigaction(SIGINT,  &sa, NULL);
-	sigaction(SIGTERM, &sa, NULL);
+	memset(&sa1, 0, sizeof(sa1));
+	sa1.sa_handler = terminate;
+	sigaction(SIGINT,  &sa1, NULL);
+	sigaction(SIGTERM, &sa1, NULL);
+
+	memset(&sa2, 0, sizeof(sa2));
+	sa2.sa_handler = calculate;
+	sigaction(SIGUSR1, &sa2, NULL);
 
 	if (!sflag && !(dpy = XOpenDisplay(NULL)))
 		die("dwms: cannot open display");
