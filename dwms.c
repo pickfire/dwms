@@ -2,6 +2,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#include <math.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -209,9 +210,8 @@ getfree(char *mnt)
 char *
 getvol(char *channel)
 {
-	/*
-	long vol, min, max;
-	int mute;
+	long val, min, max;
+	int psw;
 	snd_mixer_t *mixer;
 	snd_mixer_selem_id_t *id;
 	snd_mixer_elem_t *elem;
@@ -226,19 +226,20 @@ getvol(char *channel)
 	snd_mixer_selem_id_set_name(id, channel);
 	elem = snd_mixer_find_selem(mixer, id);
 
-	snd_mixer_selem_get_playback_switch(elem, SND_MIXER_SCHN_MONO, &mute);
-	snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_MONO, &vol);
+	snd_mixer_selem_get_playback_switch(elem, SND_MIXER_SCHN_MONO, &psw);
+	snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_MONO, &val);
 	snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
 
 	snd_mixer_close(mixer);
 
-	if (mute)
+	if (!psw)
 		return smprintf("M");
-	else if (vol == max)
+	else if (val == max)
 		return smprintf("F");
 	else
-		return smprintf("%ld", 100 * vol / max);
-	*/
+		return smprintf("%d", (int) rint((double) (val - min) /
+						 (double) (max - min) * 100));
+	/*
 	int vol;
 	snd_hctl_t *hctl;
 	snd_hctl_elem_t *elem;
@@ -259,7 +260,8 @@ getvol(char *channel)
 
 	vol = (int) snd_ctl_elem_value_get_integer(control, 0);
 	snd_hctl_close(hctl);
-	return smprintf("%d", vol);
+	return smprintf("%d", vol * 100 / 150);
+	*/
 }
 
 void
